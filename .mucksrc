@@ -1,0 +1,16 @@
+#
+# Mucks project
+#
+name: mucks
+dir: /home/serge/src/serge/mucks
+mux: tmux
+
+[vim]
+vim mucks test.sh mucksrc.example -p
+
+[shell]
+
+[man]
+man tmux
+- vsplit
+man screen
