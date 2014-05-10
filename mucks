@@ -19,7 +19,8 @@ parse_header() {
 }
 
 parse_layout() {
-	cmd=`echo $1 | sed -e 's/^-\s*/-/' -e 's/\s.*$//'`
+	cmd="`echo $1 | sed -e 's/^-\s*/-/' -e 's/\s.*$//'`"
+	args="`echo $1 | sed -e 's/^-\s*[^ \t]*\s*//'`"
 	case $cmd in
 		"-split" | "-hsplit")
 			mux_hsplit
@@ -27,12 +28,18 @@ parse_layout() {
 		"-vsplit")
 			mux_vsplit
 			;;
+		"-layout")
+			mux_layout $args
+			;;
+		"-sleep")
+			mux_sleep $args
+			;;
 		*)
 			if [ `expr substr $cmd 1 1` = "-" ]; then
 				echo "Invalid command: $cmd"
 				exit 1
 			else
-				mux_send $line
+				mux_send $1
 			fi
 			;;
 	esac
@@ -88,6 +95,16 @@ mux_vsplit() {
 		"tmux") tmux -L "$CONFIG_id" split-window -h ;;
 		"screen") mux_new_window $LAST_WINDOW_NAME ;;
 	esac
+}
+
+mux_layout() {
+	case $CONFIG_mux in
+		"tmux") tmux -L "$CONFIG_id" select-layout $1 ;;
+	esac
+}
+
+mux_sleep() {
+	sleep $1
 }
 
 mux_send() {

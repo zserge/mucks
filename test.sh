@@ -37,6 +37,12 @@ mux_hsplit() {
 mux_vsplit() {
 	true
 }
+mux_layout() {
+	true
+}
+mux_sleep() {
+	true
+}
 mux_send() {
 	true
 }
