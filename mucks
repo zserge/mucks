@@ -67,6 +67,8 @@ mux_new_window() {
 	if [ -z $STARTED ] ; then
 		STARTED=1
 		cd $CONFIG_dir
+		[ -n $CONFIG_pre ] && eval $CONFIG_pre
+		cd $CONFIG_dir
 		printf "\033]0;$CONFIG_name\007"
 		case $CONFIG_mux in
 			"tmux") tmux -L "$CONFIG_id" new-session -d -s "$CONFIG_id" -n "$1" ;;
@@ -80,6 +82,7 @@ mux_new_window() {
 		esac
 		WINDEX=$((WINDEX+1))
 	fi
+	[ -n $CONFIG_prewnd ] && mux_send $CONFIG_prewnd
 	LAST_WINDOW_NAME="$1"
 }
 
