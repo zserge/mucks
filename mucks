@@ -5,6 +5,8 @@ CONFIG_id="mucks$$"
 CONFIG_dir=.
 CONFIG_name="mucks - `dirname .`"
 
+[ -d "$TMPDIR" ] && TMP="$TMPDIR" || TMP=/tmp
+
 trim() {
 	echo "$1" | sed -e 's/#.*$//' -e 's/\s*$//' -e 's/^\s*//'
 }
@@ -71,13 +73,13 @@ mux_new_window() {
 		cd $CONFIG_dir
 		printf "\033]0;$CONFIG_name\007"
 		case $CONFIG_mux in
-			"tmux") tmux -L "$CONFIG_id" new-session -d -s "$CONFIG_id" -n "$1" ;;
+			"tmux") tmux -S "$TMP/$CONFIG_id" new-session -d -s "$CONFIG_id" -n "$1" ;;
 			"screen") screen -d -m -S "$CONFIG_id" -t "$1" $SHELL ;;
 		esac
 		WINDEX=0
 	else
 		case $CONFIG_mux in
-			"tmux") tmux -L "$CONFIG_id" new-window -n "$1" ;;
+			"tmux") tmux -S "$TMP/$CONFIG_id" new-window -n "$1" ;;
 			"screen") screen -S "$CONFIG_id" -X screen -t "$1" $SHELL ;;
 		esac
 		WINDEX=$((WINDEX+1))
@@ -88,21 +90,21 @@ mux_new_window() {
 
 mux_hsplit() {
 	case $CONFIG_mux in
-		"tmux") tmux -L "$CONFIG_id" split-window -v ;;
+		"tmux") tmux -S "$TMP/$CONFIG_id" split-window -v ;;
 		"screen") mux_new_window $LAST_WINDOW_NAME ;;
 	esac
 }
 
 mux_vsplit() {
 	case $CONFIG_mux in
-		"tmux") tmux -L "$CONFIG_id" split-window -h ;;
+		"tmux") tmux -S "$TMP/$CONFIG_id" split-window -h ;;
 		"screen") mux_new_window $LAST_WINDOW_NAME ;;
 	esac
 }
 
 mux_layout() {
 	case $CONFIG_mux in
-		"tmux") tmux -L "$CONFIG_id" select-layout $1 ;;
+		"tmux") tmux -S "$TMP/$CONFIG_id" select-layout $1 ;;
 	esac
 }
 
@@ -112,7 +114,7 @@ mux_sleep() {
 
 mux_send() {
 	case $CONFIG_mux in
-		"tmux") tmux -L "$CONFIG_id" send-keys "$1" "C-m" ;;
+		"tmux") tmux -S "$TMP/$CONFIG_id" send-keys "$1" "C-m" ;;
 		"screen")
 			screen -S "$CONFIG_id" -p $WINDEX -X stuff "$1"
 			;;
@@ -121,7 +123,10 @@ mux_send() {
 
 mux_finalize() {
 	case $CONFIG_mux in
-		"tmux") tmux -L "$CONFIG_id" attach-session -t "$CONFIG_id" ;;
+		"tmux")
+			tmux -S "$TMP/$CONFIG_id" attach-session -t "$CONFIG_id"
+			rm -f "$TMP/$CONFIG_id"
+			;;
 		"screen") screen -r "$CONFIG_id" ;;
 	esac
 }

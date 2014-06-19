@@ -2,7 +2,6 @@
 #set -e
 
 . assert.sh
-#. stub.sh
 
 TEST="yes" # to skip real execution of mucks
 . mucks
