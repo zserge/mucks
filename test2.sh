@@ -42,9 +42,21 @@ runtest 1
 #
 cat > .testmucksrc << EOF
 pre: export FOO="bar"
-[test]
+[test1]
 [ \$FOO = "bar" ] && echo "OK 1: Variable exported" >> $OUT
-exit
+[test2]
+[ \$FOO = "bar" ] && echo "OK 2: Variable exported" >> $OUT
+tmux kill-session
+EOF
+runtest 2
+cat > .testmucksrc << EOF
+pre: printf X >> foo
+[test1]
+[test2]
+[test3]
+[ \$(cat foo) = "X" ] && echo "OK 1: pre executed once" >> $OUT
+rm foo
+tmux kill-session
 EOF
 runtest 1
 
