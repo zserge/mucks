@@ -1,151 +1,138 @@
-#!/bin/sh
+#!/usr/bin/awk -f
 
-CONFIG_mux="tmux"
-CONFIG_id="mucks$$"
-CONFIG_dir=.
-CONFIG_name="mucks - `dirname .`"
-
-[ -d "$TMPDIR" ] && TMP="$TMPDIR" || TMP=/tmp
-
-trim() {
-	echo "$1" | sed -e 's/#.*$//' -e 's/\s*$//' -e 's/^\s*//'
+function usage() {
+	print("USAGE: mucks [mucksrc]")
 }
 
-parse_header() {
-	k=`echo "$1" | sed -e 's/:.*$//'`
-	v=`echo "$1" | sed -e 's/^[^:]*:\s*//'`
-	k=`trim "$k"`
-	v=`trim "$v"`
-	# TODO check if $k is a valid key
-	eval CONFIG_$k="\"$v\""
+function join(a, skip, _, i, s) {
+	for (i in a) {
+		if (!skip || i > 1) {
+			s = s " " a[i]
+		}
+	}
+	return s
 }
 
-parse_layout() {
-	cmd="`echo $1 | sed -e 's/^-\s*/-/' -e 's/\s.*$//'`"
-	args="`echo $1 | sed -e 's/^-\s*[^ \t]*\s*//'`"
-	case $cmd in
-		"-split" | "-hsplit")
-			mux_hsplit
-			;;
-		"-vsplit")
-			mux_vsplit
-			;;
-		"-layout")
-			mux_layout $args
-			;;
-		"-sleep")
-			mux_sleep $args
-			;;
-		*)
-			if [ `expr substr $cmd 1 1` = "-" ]; then
-				echo "Invalid command: $cmd"
-				exit 1
-			else
-				mux_send $1
-			fi
-			;;
-	esac
-	true
+function mux(name, cmd) {
+	if (CONFIG["mux"] == name) {
+		system(cmd)
+	}
 }
 
-parse_config() {
-	IFS=''
-	header_flag=1
-	while read line <&3 ; do
-		line=`trim "$line"`
-		[ -z $line ] && continue
-		section=`echo $line | sed -e 's/^\[\(.*\)\]$/\1/'`
-		if [ "x$section" != "x$line" ] ; then # new layout section
-			mux_new_window $section
-			header_flag=0
-			continue
-		fi
-		[ $header_flag -eq 1 ] && parse_header "$line" || parse_layout "$line"
-	done
-	mux_finalize
+function id() {
+	if (length(PROCINFO["pid"]) > 0) {
+		return "mucks" PROCINFO["pid"];
+	} else {
+		if (!_id) _id = systime();
+		return "mucks" _id;
+	}
 }
 
-mux_new_window() {
-	if [ -z $STARTED ] ; then
-		STARTED=1
-		cd $CONFIG_dir
-		[ -n $CONFIG_pre ] && eval $CONFIG_pre
-		cd $CONFIG_dir
-		printf "\033]0;$CONFIG_name\007"
-		case $CONFIG_mux in
-			"tmux") tmux -S "$TMP/$CONFIG_id" new-session -d -s "$CONFIG_id" -n "$1" ;;
-			"screen") screen -d -m -S "$CONFIG_id" -t "$1" $SHELL ;;
-		esac
-		WINDEX=0
-	else
-		case $CONFIG_mux in
-			"tmux") tmux -S "$TMP/$CONFIG_id" new-window -n "$1" ;;
-			"screen") screen -S "$CONFIG_id" -X screen -t "$1" $SHELL ;;
-		esac
-		WINDEX=$((WINDEX+1))
-	fi
-	[ -n $CONFIG_prewnd ] && mux_send $CONFIG_prewnd
-	LAST_WINDOW_NAME="$1"
+function esc(s, _) {
+	_ = s
+	gsub(/\\/, "\\\\", _)
+	gsub(/\"/, "\\\"", _)
+	return "\"" _ "\""
 }
 
-mux_hsplit() {
-	case $CONFIG_mux in
-		"tmux") tmux -S "$TMP/$CONFIG_id" split-window -v ;;
-		"screen") mux_new_window $LAST_WINDOW_NAME ;;
-	esac
+function head() {
+	if (CONFIG["mux"] == "tmux") {
+		return "tmux -S " CONFIG["tmpdir"] "/" id()
+	} else if (CONFIG["mux"] == "screen") {
+		return "screen " id()
+	}
 }
 
-mux_vsplit() {
-	case $CONFIG_mux in
-		"tmux") tmux -S "$TMP/$CONFIG_id" split-window -h ;;
-		"screen") mux_new_window $LAST_WINDOW_NAME ;;
-	esac
+function finish() {
+	mux("tmux", head() " attach-session -t " id() "; rm -f " CONFIG["tmpdir"] "/" id())
 }
 
-mux_layout() {
-	case $CONFIG_mux in
-		"tmux") tmux -S "$TMP/$CONFIG_id" select-layout $1 ;;
-	esac
+function mux_new_window(section, _, cmd) {
+	if (!FIRST_WINDOW) {
+		FIRST_WINDOW=1
+		cmd = "cd " CONFIG["dir"] 
+		if (CONFIG["pre"]) {
+			cmd = cmd "; eval " CONFIG["pre"] "; cd " CONFIG["dir"]
+		}
+		if (CONFIG["name"]) {
+			printf("\033]0;" CONFIG["name"] "\a")
+		}
+		mux("tmux", cmd "; " head() " new-session -d -s " id() " -n " esc(section))
+	} else {
+		mux("tmux", "cd " CONFIG["dir"] "; " head() " new-window -n " esc(section))
+	}
+	if (CONFIG["prewnd"]) {
+		mux_send(CONFIG["prewnd"])
+	}
 }
 
-mux_sleep() {
-	sleep $1
+function mux_internal(command, _, args, i, tail) {
+	if (command == "split") {
+		mux("tmux", head() " split-window -h")
+		return
+	}
+	split(command, args, /[[:space:]]+/)
+	if (args[1] == "sh") {
+		system(join(args, 1))
+		return
+	}
+	if (args[1] == CONFIG["mux"]) {
+		system(head() " " join(args, 1))
+	}
 }
 
-mux_send() {
-	case $CONFIG_mux in
-		"tmux") tmux -S "$TMP/$CONFIG_id" send-keys "$1" "C-m" ;;
-		"screen")
-			screen -S "$CONFIG_id" -p $WINDEX -X stuff "$1"
-			;;
-	esac
+function mux_send(text) {
+	mux("tmux", head() " send-keys " esc(text) " C-m")
 }
 
-mux_finalize() {
-	case $CONFIG_mux in
-		"tmux")
-			tmux -S "$TMP/$CONFIG_id" attach-session -t "$CONFIG_id"
-			rm -f "$TMP/$CONFIG_id"
-			;;
-		"screen") screen -r "$CONFIG_id" ;;
-	esac
+function process(f, _, section, header_flag, s, k, v) {
+	header_flag = 0;
+	for (;;) {
+		if ((getline < f) <= 0) {
+			break
+		}
+		sub(/#.*$/, "")
+		if (length($0) > 0) {
+			if ($0 ~ /\[[^ ].*\]/) {        # Create secion
+				header_flag = 1
+				section = substr($0, 2, length($0) - 2)
+				mux_new_window(section)
+			} else if (header_flag == 0) {  # Parse header
+				s = $0; sub(/[[:space:]]*:[^:]*$/, "", s); k = s;
+				s = $0; sub(/^[^:]*:[[:space:]]*/, "", s); v = s;
+				CONFIG[k] = v
+			} else {                        # Parse window input
+				if ($0 ~ /^-/) {
+					sub(/^-[[:space:]]*/, "")
+					mux_internal($0)
+				} else {
+					mux_send($0)
+				}
+			}
+		}
+	}
+	finish()
 }
 
-main() {
-	if [ $# -eq 1 ] ; then
-		if [ -f "$1" ] ; then
-			parse_config 3< "$1"
-		else
-			echo "Error: not found $1"
-			exit 1
-		fi
-	elif [ -f .mucksrc ] ; then
-		parse_config 3< .mucksrc
-	else
-		echo "Error: .mucksrc not specified and not found in the current directory"
-		exit 1
-	fi
+function main() {
+	CONFIG["mux"] = "tmux"
+	CONFIG["dir"] = "."
+	if (length(ENVIRON["TMPDIR"]) > 0) {
+		CONFIG["tmpdir"] = ENVIRON["TMPDIR"]
+	} else {
+		CONFIG["tmpdir"] = "/tmp"
+	}
+
+	if (ARGC == 1) {
+		process(".mucksrc")
+	} else if (ARGC == 2) {
+		process(ARGV[1])
+	} else if (ARGC > 1) {
+		usage()
+	}
 }
 
-[ -z $TEST ] && main $*
-
+BEGIN {
+	main()
+	exit
+}
