@@ -4,6 +4,10 @@ function usage() {
 	print("USAGE: mucks [mucksrc]")
 }
 
+function empty(s) {
+	return length(s) == 0
+}
+
 function join(a, skip, _, i, s) {
 	for (i in a) {
 		if (!skip || i > 1) {
@@ -13,14 +17,29 @@ function join(a, skip, _, i, s) {
 	return s
 }
 
-function mux(name, cmd) {
+function pre(cmd) {
+	if (CONFIG["mux"] == "tmux") {
+		return "tmux -S " CONFIG["tmpdir"] "/" id() " " cmd
+	} else if (CONFIG["mux"] == "screen") {
+		return "screen -S " id() " " cmd
+	}
+}
+
+function post(cmd) {
+	if (CONFIG["mux"] == "dvtm") {
+		print cmd > (CONFIG["tmpdir"] "/" id())
+	}
+}
+
+function mux(name, cmd, precmd) {
 	if (CONFIG["mux"] == name) {
-		system(cmd)
+		system((empty(precmd) ? "" : precmd ";") pre(cmd))
+		post(cmd)
 	}
 }
 
 function id() {
-	if (length(PROCINFO["pid"]) > 0) {
+	if (!empty(PROCINFO["pid"])) {
 		return "mucks" PROCINFO["pid"];
 	} else {
 		if (!_id) _id = systime();
@@ -35,16 +54,10 @@ function esc(s, _) {
 	return "\"" _ "\""
 }
 
-function head() {
-	if (CONFIG["mux"] == "tmux") {
-		return "tmux -S " CONFIG["tmpdir"] "/" id()
-	} else if (CONFIG["mux"] == "screen") {
-		return "screen " id()
-	}
-}
-
 function finish() {
-	mux("tmux", head() " attach-session -t " id() "; rm -f " CONFIG["tmpdir"] "/" id())
+	mux("tmux", "attach-session -t " id() "; rm -f " CONFIG["tmpdir"] "/" id())
+	mux("screen", "-r " id())
+	mux("dvtm", "", "abduco -a " id() "; rm -f " CONFIG["tmpdir"] "/" id())
 }
 
 function mux_new_window(section, _, cmd) {
@@ -57,9 +70,16 @@ function mux_new_window(section, _, cmd) {
 		if (CONFIG["name"]) {
 			printf("\033]0;" CONFIG["name"] "\a")
 		}
-		mux("tmux", cmd "; " head() " new-session -d -s " id() " -n " esc(section))
+		mux("tmux", "new-session -d -s " id() " -n " esc(section), cmd)
+		mux("screen", "-d -m -t " esc(section), cmd)
+		mux("dvtm", "", cmd "; abduco -n " id() " dvtm -c " CONFIG["tmpdir"] "/" id() "; sleep 1")
+		system("sleep 1")
+		wndindex = 0
 	} else {
-		mux("tmux", "cd " CONFIG["dir"] "; " head() " new-window -n " esc(section))
+		mux("tmux", "new-window -n " esc(section), "cd " CONFIG["dir"])
+		mux("screen", "-X screen -t " esc(section), "cd " CONFIG["dir"])
+		mux("dvtm", "create " (empty(ENVIRON["SHELL"]) ? "/bin/sh" : ENVIRON["SHELL"]) " " esc(section) " " CONFIG["dir"])
+		wndindex = wndindex + 1
 	}
 	if (CONFIG["prewnd"]) {
 		mux_send(CONFIG["prewnd"])
@@ -68,7 +88,7 @@ function mux_new_window(section, _, cmd) {
 
 function mux_internal(command, _, args, i, tail) {
 	if (command == "split") {
-		mux("tmux", head() " split-window -h")
+		mux("tmux", "split-window -h")
 		return
 	}
 	split(command, args, /[[:space:]]+/)
@@ -77,12 +97,14 @@ function mux_internal(command, _, args, i, tail) {
 		return
 	}
 	if (args[1] == CONFIG["mux"]) {
-		system(head() " " join(args, 1))
+		mux(CONFIG["mux"], join(args, 1))
 	}
 }
 
 function mux_send(text) {
-	mux("tmux", head() " send-keys " esc(text) " C-m")
+	mux("tmux", "send-keys " esc(text) " C-m")
+	mux("screen", "-p " wndindex " -X stuff " esc(text) "")
+	mux("dvtm", "send " esc(text ""))
 }
 
 function process(f, _, section, header_flag, s, k, v) {
@@ -92,7 +114,7 @@ function process(f, _, section, header_flag, s, k, v) {
 			break
 		}
 		sub(/#.*$/, "")
-		if (length($0) > 0) {
+		if (!empty($0)) {
 			if ($0 ~ /\[[^ ].*\]/) {        # Create secion
 				header_flag = 1
 				section = substr($0, 2, length($0) - 2)
@@ -115,7 +137,7 @@ function process(f, _, section, header_flag, s, k, v) {
 }
 
 function main() {
-	CONFIG["mux"] = "tmux"
+	CONFIG["mux"] = empty(ENVIRON["MUCKS"]) ? "tmux" : ENVIRON["MUCKS"]
 	CONFIG["dir"] = "."
 	if (length(ENVIRON["TMPDIR"]) > 0) {
 		CONFIG["tmpdir"] = ENVIRON["TMPDIR"]
@@ -136,3 +158,4 @@ BEGIN {
 	main()
 	exit
 }
+
